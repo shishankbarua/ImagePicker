@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dart:html' as html;
+import 'dart:async';
+
 class FilePickerDemo extends StatefulWidget {
   @override
   _FilePickerDemoState createState() => _FilePickerDemoState();
@@ -26,6 +29,53 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
   void initState() {
     super.initState();
     _controller.addListener(() => _extension = _controller.text);
+  }
+
+  Future<html.File?> pickFile() async {
+    final completer = Completer<List<html.File>?>();
+    final input = html.FileUploadInputElement() as html.InputElement;
+    input.accept = 'image';
+
+    var changeEventTriggered = false;
+    void changeEventListener(html.Event e) {
+      if (changeEventTriggered) return;
+      changeEventTriggered = true;
+
+      final files = input.files!;
+      final resultFuture = files.map<Future<html.File>>((file) async {
+        final reader = html.FileReader();
+        reader.readAsDataUrl(file);
+        reader.onError.listen(completer.completeError);
+        return file;
+      });
+      Future.wait(resultFuture).then((results) => completer.complete(results));
+    }
+
+    void cancelledEventListener(html.Event e) {
+      html.window.removeEventListener('focus', cancelledEventListener);
+
+      // This listener is called before the input changed event,
+      // and the `uploadInput.files` value is still null
+      // Wait for results from js to dart
+      Future.delayed(Duration(milliseconds: 500)).then((value) {
+        if (!changeEventTriggered) {
+          changeEventTriggered = true;
+          completer.complete(null);
+        }
+      });
+    }
+
+    input.onChange.listen(changeEventListener);
+    input.addEventListener('change', changeEventListener);
+
+    // Listen focus event for cancelled
+    html.window.addEventListener('focus', cancelledEventListener);
+
+    input.click();
+
+    final results = await completer.future;
+    if (results == null || results.isEmpty) return null;
+    return results.first;
   }
 
   void _pickFiles() async {
@@ -205,7 +255,7 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
                     child: Column(
                       children: <Widget>[
                         ElevatedButton(
-                          onPressed: () => _pickFiles(),
+                          onPressed: () => pickFile(),
                           child: Text(_multiPick ? 'Pick files' : 'Pick file'),
                         ),
                         SizedBox(height: 10),
